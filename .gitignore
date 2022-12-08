@@ -1,3 +1,6 @@
+# Custom
+cats_and_dogs/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
