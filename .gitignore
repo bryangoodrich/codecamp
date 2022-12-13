@@ -1,5 +1,6 @@
 # Custom
 cats_and_dogs/
+data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
