@@ -3,7 +3,7 @@ from RPS_game import play, mrugesh, abbey, quincy, kris, human, random_player
 from RPS import player
 from unittest import main
 
-plays = 10000
+plays = 1000
 print("Player2 - quincy")
 play(player, quincy, plays)
 

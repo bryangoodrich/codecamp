@@ -1,105 +1,107 @@
 import random
 import numpy as np
 import itertools
-from collections import Counter
 
 
-EXPLORE_RATE = 0.99
-DECAY_RATE = 0.01
-EXPLORE_FLOOR = 0.001
-
-LEARNING_RATE_MAX = 0.3
-LEARNING_RATE = 0.1
-LEARNING_DELTA = 0.005
-
-DISCOUNT_FACTOR = 0.99
-DISCOUNT_MIN = 0.8
-DISCOUNT_DELTA = 0.005
-
+DOUBLEQTABLES = True
+DISCOUNT_FACTOR = 0.32
+DISCOUNT_RATE = 0.3
+DECAY_RATE = 0.5
+LEARN_RATE = 0.8
 HISTORY_SIZE = 4
-
 IDEAL_RESPONSE = {'P': 'S', 'R': 'P', 'S': 'R'}
-RPS = "RPS"
-STATE_SIZE = (3**HISTORY_SIZE, len(RPS))
+STATE_SIZE = (3**HISTORY_SIZE, 3)
 STATES = ["".join(i) for i in itertools.product("RPS", repeat=HISTORY_SIZE)]
 
 
-def get_reward(prediction, actual):
+def get_reward(action, actual):
+    prediction = "RPS"[action]
     if prediction == actual:
         return 1
-    elif prediction == IDEAL_RESPONSE[RPS[actual]]:
+    elif prediction == IDEAL_RESPONSE[actual]:
         return -1
     else:
-        return -0.5
+        return -1
 
 
-def get_new_action(options, explore_rate):
-    r = random.random()
-    action = random.choice([0, 1, 2]) if r < explore_rate else np.argmax(options)
-    return action, max(explore_rate - DECAY_RATE, EXPLORE_FLOOR)
-
-
-def map_state(s):
-    state = "".join([RPS[i] for i in s])
-    return STATES.index(state)
+def map_state(state):
+    s = "".join(state)
+    return STATES.index(s)
 
 
 def initialize_qtable(size):
-    return np.random.uniform(size=size)
+    #return np.random.uniform(size=size)
+    return np.zeros(size)
 
 
-def reset_counter(counter):
-    for key in counter:
-        counter[key] = 0
-    
-    return counter
+def maxQA(q, s):
+    state = q[s]
+    return np.argmax(state), max(state)  # (action, value)
 
 
-# module variables
-qtable = initialize_qtable(STATE_SIZE)
-explore_rate = EXPLORE_RATE
-discount = DISCOUNT_FACTOR
-learning_rate = LEARNING_RATE
-action = random.choice([0,1,2])
-counter = reset_counter(Counter(STATES))
+def prediction(action):
+    prediction = "RPS"[action]
+    return IDEAL_RESPONSE[prediction]
 
 
-def player(previous_opponent_play, history = []):
-    global qtable
-    global explore_rate
-    global learning_rate
-    global discount
+qtablea = initialize_qtable(STATE_SIZE)
+qtableb = initialize_qtable(STATE_SIZE)
+action = random.choice([0, 1, 2])
+counter = {}
+
+
+def player(prev, history = [], discount=.84):
+    global qtablea
+    global qtableb
     global action
     global counter
     
-    if previous_opponent_play == "":
-        history.clear()
-        qtable = initialize_qtable(STATE_SIZE)
-        explore_rate = EXPLORE_RATE
-        learning_rate = LEARNING_RATE
-        discount = DISCOUNT_FACTOR
+    if prev == "":
+        qtablea = initialize_qtable(STATE_SIZE)
+        qtableb = initialize_qtable(STATE_SIZE)
         action = random.choice([0, 1, 2])
-        counter = reset_counter(counter)
+        counter = {}
+        history.clear()
     
-    obs = RPS.index(previous_opponent_play)
     if len(history) <= HISTORY_SIZE:
-        history.append(obs)
-        return random.choice("RPS")
+        history.append(prev)
+        action = random.choice([0, 1, 2])
+        return prediction(action)
     
     s1 = history[-HISTORY_SIZE:]
     state = map_state(s1)
-    history.append(obs)
+    history.append(prev)
     s2 = history[-HISTORY_SIZE:]
     new_state = map_state(s2)
-    reward = get_reward(action, obs)
+    reward = get_reward(action, prev)
     
-    max_future_q = np.max(qtable[new_state])
-    current_q = qtable[state][action]
-    new_q = max(0.0001, (1-learning_rate)*current_q + learning_rate*(reward + discount*max_future_q))
-    qtable[state][action] = new_q
-    qtable[state] = qtable[state] / sum(qtable[state])  # normalize to probability
-    learning_rate = min(learning_rate + LEARNING_DELTA, LEARNING_RATE_MAX)
-    discount = max(discount - DISCOUNT_DELTA, DISCOUNT_MIN)
+    counter[state] = counter.get(state, 0) + 1
+    counter[(state, action)] = counter.get((state, action), 0) + 1
+    learning_rate = 1 / np.power(counter.get((state, action), 1), LEARN_RATE)
+    discount = 1 / np.power(counter.get(state, 1), DISCOUNT_RATE)
     
-    action, explore_rate = get_new_action(qtable[new_state], explore_rate)
-    return IDEAL_RESPONSE[RPS[action]]
+    if DOUBLEQTABLES:
+        if (np.random.random() < 0.5):  # Update A
+            next_action, _ = maxQA(qtablea, new_state)
+            current_q = qtablea[state, action]
+            future_q = qtableb[new_state, next_action]
+            discount = 1 - (learning_rate)
+            new_q = (1-learning_rate)*current_q + learning_rate * (reward + discount*future_q)
+            qtablea[state, action] = new_q
+        else: # Update B
+            next_action, _ = maxQA(qtableb, new_state)
+            current_q = qtableb[state, action]
+            future_q = qtablea[new_state, next_action]
+            discount = 1 - (learning_rate)
+            new_q = (1-learning_rate)*current_q + learning_rate * (reward + discount*future_q)
+            qtableb[state, action] = new_q
+    else:  # Single Q-Learning
+        next_action, maxq = maxQA(qtablea, new_state)
+        current_q = qtablea[state, action]
+        future_q = maxq 
+        new_q = (1-learning_rate)*current_q + learning_rate*(reward + discount*future_q)
+        qtablea[state, action] = new_q
+    
+    eps = 1 / np.power(counter.get(state, 1), DECAY_RATE)
+    action = next_action if np.random.random() < (1-eps) else random.choice([0, 1, 2])
+    return prediction(action)
